@@ -132,26 +132,10 @@ class Package:
         #self.config.update_package(self)
 
     def install(self):
-        if self.stage is None or self.stage < BUILT:
-            self.build()
+        #if self.stage is None or self.stage < BUILT:
+        #    self.build()
         click.echo('Installing {0}'.format(self.name))
-        build_dir = self.build_dir()
-        # Coping manifest
-        manifest = os.path.join(build_dir, 'install_manifest.txt')
-        if os.path.isfile(manifest):
-            md = os.path.join(self.config.install_root(), 'manifests')
-            if not os.path.isdir(md):
-                os.mkdir(md)
-            manifest_dst = os.path.join(md, self.name + '.txt')
-            shutil.copyfile(manifest, manifest_dst)
-            click.echo('Manifest saved to {0}'.format(manifest_dst))
-        # Install
-        cmake = self.config.cmake_executable()
-        args = [cmake, '--build', build_dir, '--target', 'install']
-        cfg = self.config.options.get('config', None)
-        if cfg is not None:
-            args += ['--config', cfg]
-        cmd(args, cwd=build_dir)
+        self.builder.install(src_dir=self.src_dir(), build_dir=self.build_dir(), options=self.config.options)
         # Commit
         self.stage = INSTALLED
         #self.config.update_package(self)

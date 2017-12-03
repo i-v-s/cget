@@ -1,5 +1,7 @@
 import re
 import os
+import shutil
+import click
 from cget.util import cmd, delete_dir
 
 
@@ -62,6 +64,23 @@ class CMake:
 
     def build(self, src_dir=None, build_dir=None, options=None):
         args = [self.cmake, '--build', build_dir]
+        cfg = options.get('config', None)
+        if cfg is not None:
+            args += ['--config', cfg]
+        cmd(args, cwd=build_dir)
+
+    def install(self, src_dir=None, build_dir=None, options=None):
+        # Coping manifest
+        manifest = os.path.join(build_dir, 'install_manifest.txt')
+        if os.path.isfile(manifest):
+            md = os.path.join(self.install_root, 'manifests')
+            if not os.path.isdir(md):
+                os.mkdir(md)
+            manifest_dst = os.path.join(md, self.name + '.txt')
+            shutil.copyfile(manifest, manifest_dst)
+            click.echo('Manifest saved to {0}'.format(manifest_dst))
+        # Install
+        args = [self.cmake, '--build', build_dir, '--target', 'install']
         cfg = options.get('config', None)
         if cfg is not None:
             args += ['--config', cfg]
