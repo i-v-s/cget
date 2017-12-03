@@ -1,13 +1,13 @@
 import click, os, multiprocessing
-
 import cget.util as util
 
+
 class Builder:
-    def __init__(self, prefix, top_dir, exists=False):
+    def __init__(self, prefix, arch_dir, src_dir, build_dir):
         self.prefix = prefix
-        self.top_dir = top_dir
-        self.build_dir = self.get_path('build')
-        self.exists = exists
+        self.src_dir = src_dir
+        self.arch_dir = arch_dir
+        self.build_dir = build_dir # self.get_path('build')
         self.cmake_original_file = '__cget_original_cmake_file__.cmake'
 
     def get_path(self, *args):
@@ -17,7 +17,7 @@ class Builder:
         return self.get_path('build', *args)
 
     def is_make_generator(self):
-        return os.path.exists(self.get_build_path('Makefile'))
+        return os.path.exists(os.path.join(self.build_dir, 'Makefile'))
 
     def cmake(self, options=None, use_toolchain=False, **kwargs):
         if use_toolchain: self.prefix.cmd.cmake(options=util.merge({'-DCMAKE_TOOLCHAIN_FILE': self.prefix.toolchain}, options), **kwargs)
@@ -31,14 +31,27 @@ class Builder:
         self.show_log(self.get_build_path('CMakeFiles', 'CMakeOutput.log'))
         self.show_log(self.get_build_path('CMakeFiles', 'CMakeError.log'))
 
-    def fetch(self, url, hash=None, copy=False, insecure=False):
+    def fetch(self, url, fname, hash=None, copy=False, insecure=False, pkg=None):
         self.prefix.log("fetch:", url)
         if insecure: url = url.replace('https', 'http')
-        f = util.retrieve_url(url, self.top_dir, copy=copy, insecure=insecure, hash=hash)
+        if pkg is not None:
+            f = os.path.join(self.arch_dir, pkg['archive'])
+        if not os.path.isfile(f):
+            f = util.retrieve_url(url, self.arch_dir, copy=copy, insecure=insecure, hash=hash)
         if os.path.isfile(f):
             click.echo("Extracting archive {0} ...".format(f))
-            util.extract_ar(archive=f, dst=self.top_dir)
-        return next(util.get_dirs(self.top_dir))
+            temp_dir = os.path.abspath('temp')
+            util.delete_dir(temp_dir)
+            os.mkdir(temp_dir)
+            util.extract_ar(archive=f, dst=temp_dir)
+            dirs = [o for o in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, o))]
+            if len(dirs) != 1:
+                raise Exception('wrong count')
+            util.delete_dir(os.path.join(self.src_dir, fname))
+            os.rename(os.path.join(temp_dir, dirs[0]), os.path.join(self.src_dir, fname))
+            util.delete_dir(temp_dir)
+            return os.path.join(self.src_dir, fname)
+        return next(util.get_dirs(self.top_dir)) # list of dirs dirs, found in top_dir
 
     def configure(self, src_dir, defines=None, generator=None, install_prefix=None, test=True, variant=None):
         self.prefix.log("configure")

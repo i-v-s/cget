@@ -212,9 +212,11 @@ def download_to(url, download_dir, insecure=False):
         raise BuildError("Download failed for: {0}".format(url))
     return file
 
+
 def transfer_to(f, dst, copy=False):
     if USE_SYMLINKS and not copy: return symlink_to(f, dst)
     else: return copy_to(f, dst)
+
 
 def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
     remote = not url.startswith('file://')
@@ -287,11 +289,11 @@ def yield_from(f):
     return g
 
 def cmd(args, env=None, **kwargs):
-    e = merge(os.environ, env)
-    child = subprocess.Popen(args, env=e, **kwargs)
+    #e = merge(os.environ, env)
+    child = subprocess.Popen(args, **kwargs)
     child.communicate()
     if child.returncode != 0: 
-        raise BuildError(msg='Command failed: ' + str(args), data=e)
+        raise BuildError(msg='Command failed: ' + ' '.join(args))
 
 def as_list(x):
     if is_string(x): return [x]

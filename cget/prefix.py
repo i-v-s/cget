@@ -1,10 +1,10 @@
 import os, shutil, shlex, six, inspect, click, contextlib, uuid, sys, functools
 
 from cget.builder import Builder
-from cget.package import fname_to_pkg
-from cget.package import PackageSource
-from cget.package import PackageBuild
-from cget.package import parse_pkg_build_tokens
+from cget.package1 import fname_to_pkg
+from cget.package1 import PackageSource
+from cget.package1 import PackageBuild
+from cget.package1 import parse_pkg_build_tokens
 import cget.util as util
 from cget.types import returns
 from cget.types import params
@@ -81,16 +81,18 @@ def find_cmake(p, start):
     return p
 
 
-
 PACKAGE_SOURCE_TYPES = (six.string_types, PackageSource, PackageBuild)
 
+
 class CGetPrefix:
-    def __init__(self, prefix, verbose=False, build_path=None):
-        self.prefix = os.path.abspath(prefix or 'cget')
+    def __init__(self, config, verbose=False):
+        self.config = config
+        self.prefix = os.path.abspath('install-' + config['activeConfig'])
         self.verbose = verbose
-        self.build_path_var = build_path
+        self.build_path_var = os.path.abspath('build-' + config['activeConfig'])
         self.cmd = util.Commander(paths=[self.get_path('bin')], env=self.get_env(), verbose=self.verbose)
         self.toolchain = self.write_cmake()
+        self.generator = None
 
     def log(self, *args):
         if self.verbose: click.secho(' '.join([str(arg) for arg in args]), bold=True)
@@ -110,13 +112,14 @@ class CGetPrefix:
 
     @returns(inspect.isgenerator)
     @util.yield_from
-    def generate_cmake_toolchain(self, toolchain=None, cxx=None, cxxflags=None, ldflags=None, std=None, defines=None):
+    def generate_cmake_toolchain(self, toolchain=None, generator=None, cxx=None, cxxflags=None, ldflags=None, std=None, defines=None):
         set_ = cmake_set
         if_ = cmake_if
         append_ = cmake_append
         yield set_('CGET_PREFIX', self.prefix)
         yield set_('CMAKE_PREFIX_PATH', self.prefix)
         yield ['include_directories(SYSTEM ${CMAKE_PREFIX_PATH}/include)']
+        if generator: yield set_('CMAKE_GENERATOR', generator)
         if toolchain: yield ['include({})'.format(util.quote(os.path.abspath(toolchain)))]
         yield if_('CMAKE_CROSSCOMPILING',
             append_('CMAKE_FIND_ROOT_PATH', self.prefix)
@@ -163,14 +166,14 @@ class CGetPrefix:
         else: return self.get_private_path('build', *paths)
 
     @contextlib.contextmanager
-    def create_builder(self, name, tmp=False):
-        pre = ''
-        if tmp: pre = 'tmp-'
-        d = self.get_builder_path(pre + name)
-        exists = os.path.exists(d)
-        util.mkdir(d)
-        yield Builder(self, d, exists)
-        if tmp: shutil.rmtree(d, ignore_errors=True)
+    def create_builder(self, arch_dir, src_dir, build_dir):
+        #pre = ''
+        #if tmp: pre = 'tmp-'
+        #d = self.get_builder_path(pre + name)
+        #exists = os.path.exists(d)
+        #util.mkdir(d)
+        yield Builder(self, arch_dir, src_dir, build_dir)
+        #if tmp: shutil.rmtree(d, ignore_errors=True)
 
     def get_package_directory(self, *dirs):
         return self.get_private_path('pkg', *dirs)
@@ -272,9 +275,10 @@ class CGetPrefix:
     @params(pb=PACKAGE_SOURCE_TYPES, test=bool, test_all=bool, update=bool, track=bool)
     def install(self, pb, test=False, test_all=False, generator=None, update=False, track=True, insecure=False):
         pb = self.parse_pkg_build(pb)
+        pkg = self.config['packages'].get(pb.pkg_src.name, None)
         pkg_dir = self.get_package_directory(pb.to_fname())
         unlink_dir = self.get_unlink_directory(pb.to_fname())
-        install_dir = self.get_package_directory(pb.to_fname(), 'install')
+        install_dir = self.prefix # self.get_package_directory(pb.to_fname(), 'install')
         # If its been unlinked, then link it in
         if os.path.exists(unlink_dir):
             if update: shutil.rmtree(unlink_dir)
@@ -286,9 +290,12 @@ class CGetPrefix:
             self.write_parent(pb, track=track)
             if update: self.remove(pb)
             else: return "Package {} already installed".format(pb.to_name())
-        with self.create_builder(uuid.uuid4().hex, tmp=True) as builder:
+        arch_dir = os.path.abspath('src-arch')
+        src_dir = os.path.abspath('src')
+        build_dir = os.path.join(self.build_path_var, pb.to_fname())
+        with self.create_builder(arch_dir, src_dir, build_dir) as builder:
             # Fetch package
-            src_dir = builder.fetch(pb.pkg_src.url, pb.hash, (pb.cmake != None), insecure=insecure)
+            src_dir = builder.fetch(pb.pkg_src.url, pb.pkg_src.fname, pb.hash, (pb.cmake != None), insecure=insecure, pkg=pkg)
             # Install any dependencies first
             self.install_deps(pb, src_dir, test=test, test_all=test_all, generator=generator, insecure=insecure)
             # Setup cmake file
@@ -304,13 +311,14 @@ class CGetPrefix:
             if test or test_all: builder.test(variant=pb.variant)
             # Install
             builder.build(target='install', variant=pb.variant)
-            if util.USE_SYMLINKS: util.symlink_dir(install_dir, self.prefix)
-            else: util.copy_dir(install_dir, self.prefix)
+            #if util.USE_SYMLINKS: util.symlink_dir(install_dir, self.prefix)
+            #else: util.copy_dir(install_dir, self.prefix)
         self.write_parent(pb, track=track)
         return "Successfully installed {}".format(pb.to_name())
 
     @params(pb=PACKAGE_SOURCE_TYPES, test=bool)
     def build(self, pb, test=False, target=None, generator=None):
+        if generator is None: generator = self.generator
         pb = self.parse_pkg_build(pb)
         src_dir = pb.pkg_src.get_src_dir()
         with self.create_builder(pb.to_fname()) as builder:
