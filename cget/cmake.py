@@ -9,7 +9,7 @@ def parse_project_name(directory):
     fn = os.path.join(directory, 'CMakeLists.txt')
     if not os.path.isfile(fn):
         raise FileNotFoundError('CMakeLists.txt not found')
-    with open(fn, 'r') as file:
+    with open(fn, 'r', encoding='utf-8') as file:
         for line in file:
             g = re.match('^\s*project\s*\(\s*([\w-]+)(?:\s.*)?\)', line.lower())
             if g is not None:
